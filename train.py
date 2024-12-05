@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader, Dataset
 
 from minGRU_pytorch.minGRULM import minGRULM
 
+torch.manual_seed(42)
+
 # constants
 
 NUM_BATCHES = int(1e5)
@@ -98,6 +100,11 @@ def base_decoding(
     return out[..., prompt_seq_len:]
 
 
+# tensorboard analytics
+from torch.utils.tensorboard import SummaryWriter
+
+writer = SummaryWriter()
+
 # the minGRU char language model
 
 model = minGRULM(num_tokens=256, dim=512, depth=6).cuda()
@@ -146,6 +153,7 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval=10.0, desc="training"):
         data = next(train_loader)
 
         loss = model(data, return_loss=True)
+        writer.add_scalar("Loss/train", loss, i)
 
         (loss / GRAD_ACCUM_EVERY).backward()
 
@@ -180,3 +188,6 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval=10.0, desc="training"):
         base_decode_output = decode_tokens(sampled[0])
 
         print(f"\nOUTPUT: {base_decode_output}")
+
+writer.flush()
+writer.close()
