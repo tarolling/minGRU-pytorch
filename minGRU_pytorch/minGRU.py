@@ -9,6 +9,10 @@ def exists(v):
     return v is not None
 
 
+def default(v, d):
+    return v if exists(v) else d
+
+
 # appendix B
 # https://github.com/glassroom/heinsen_sequence
 
@@ -64,16 +68,12 @@ def log_g(x):
 
 
 class minGRU(Module):
-    def __init__(self, dim, expansion_factor=1.0):
+    def __init__(self, dim, expansion_factor=1.0, proj_out=None):
         super().__init__()
 
         dim_inner = int(dim * expansion_factor)
         self.to_hidden_and_gate = Linear(dim, dim_inner * 2, bias=False)
-        self.to_out = (
-            Linear(dim_inner, dim, bias=False)
-            if expansion_factor != 1.0
-            else Identity()
-        )
+        self.to_out = Linear(dim_inner, dim, bias=False) if proj_out else Identity()
         self.activation_net = ActivationNetwork(dim_inner)
 
     def forward(self, x, prev_hidden=None, return_next_prev_hidden=False):
