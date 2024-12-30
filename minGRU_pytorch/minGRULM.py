@@ -53,6 +53,7 @@ class minGRULM(Module):
         num_tokens,
         dim,
         depth,
+        substitute_ff=False,
         ff_mult=4,
         min_gru_expansion=1.5,
         conv_kernel_size=3,
@@ -73,7 +74,7 @@ class minGRULM(Module):
                             else None
                         ),
                         RMSNorm(dim),
-                        minGRU(dim, expansion_factor=min_gru_expansion),
+                        minGRU(dim, substitute_ff, expansion_factor=min_gru_expansion),
                         RMSNorm(dim),
                         FeedForward(dim, mult=ff_mult),
                     ]

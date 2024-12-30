@@ -68,8 +68,9 @@ def log_g(x):
 
 
 class minGRU(Module):
-    def __init__(self, dim, expansion_factor=1.0, proj_out=None):
+    def __init__(self, dim, expansion_factor=1.0, substitute_ff=False, proj_out=None):
         super().__init__()
+        self.substitute_ff = substitute_ff
 
         dim_inner = int(dim * expansion_factor)
         self.to_hidden_and_gate = Linear(dim, dim_inner * 2, bias=False)
@@ -84,7 +85,7 @@ class minGRU(Module):
             # handle sequential
 
             hidden = g(hidden)
-            gate = self.activation_net(gate)
+            gate = self.activation_net(gate) if self.substitute_ff else gate.sigmoid()
             out = (
                 torch.lerp(prev_hidden, hidden, gate)
                 if exists(prev_hidden)

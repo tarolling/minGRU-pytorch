@@ -1,12 +1,12 @@
-import math
 import gzip
+import math
 import random
-import tqdm
-import numpy as np
 
+import numpy as np
 import torch
-from torch.optim import Adam
+import tqdm
 from torch import Tensor
+from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 
 from minGRU_pytorch.minGRULM import minGRULM
@@ -107,7 +107,7 @@ def base_decoding(
 
 # the minGRU char language model
 
-model = minGRULM(num_tokens=256, dim=512, depth=1).cuda()
+model = minGRULM(num_tokens=256, dim=512, depth=6).cuda()
 
 # prepare enwik8 data
 
