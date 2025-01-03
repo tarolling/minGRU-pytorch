@@ -1,4 +1,3 @@
-import numpy as np
 import polars as pl
 import torch
 import tqdm
@@ -8,7 +7,6 @@ from sklearn.metrics import (
     precision_recall_fscore_support,
     confusion_matrix,
 )
-from torch import Tensor
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
@@ -22,15 +20,14 @@ torch.manual_seed(SEED)
 
 # constants
 
-NUM_EPOCHS = 100
+SUB_FF = False
+
+NUM_EPOCHS = 10
 NUM_BATCHES = int(1e5)
 BATCH_SIZE = 2
-GRAD_ACCUM_EVERY = 2
+GRAD_ACCUM_EVERY = 10
 LEARNING_RATE = 1e-4
-VALIDATE_EVERY = 100
-PRIME_LENGTH = 128
-GENERATE_EVERY = 500
-GENERATE_LENGTH = 512
+VALIDATE_EVERY = 5
 SEQ_LEN = 512
 
 # helpers
@@ -57,12 +54,15 @@ def plot_confusion_matrix(cm, class_names):
 
 # tensorboard analytics
 
-writer = SummaryWriter("runs/imdb_original")
+writer = SummaryWriter("runs/imdb_new") if SUB_FF else SummaryWriter("runs/imdb_original")
 
 # the minGRU char language model
 
 tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-cased")
-model = minGRUC(num_tokens=256, dim=512, depth=6).cuda()
+VOCAB_SIZE = tokenizer.vocab_size
+
+
+model = minGRUC(num_tokens=VOCAB_SIZE, dim=512, depth=6, substitute_ff=SUB_FF).cuda()
 
 
 def train_test_split_df(df: pl.DataFrame, test_size=0.2):
@@ -116,7 +116,7 @@ class SentimentDataset(Dataset):
         )
 
         return {
-            "text": encoding["input_ids"].squeeze().cuda(),
+            "input_ids": encoding["input_ids"].squeeze().cuda(),
             "attention_mask": encoding["attention_mask"].squeeze().cuda(),
             "label": torch.tensor(
                 1 if label == "positive" else 0, dtype=torch.long
@@ -162,9 +162,9 @@ for epoch in range(NUM_EPOCHS):
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         labels = batch["label"]
-
+        
         outputs = model(
-            input_ids=input_ids,
+            texts=input_ids,
             attention_mask=attention_mask,
             labels=labels,
             return_loss=True,
@@ -229,7 +229,7 @@ for epoch in range(NUM_EPOCHS):
                 labels = batch["label"]
 
                 outputs = model(
-                    input_ids=input_ids,
+                    texts=input_ids,
                     attention_mask=attention_mask,
                     labels=labels,
                     return_loss=True,

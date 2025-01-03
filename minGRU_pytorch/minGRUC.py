@@ -14,14 +14,53 @@ def default(v, d):
     return v if exists(v) else d
 
 
+def masked_pooling(hidden_states, attention_mask, pooling_type="mean"):
+    if attention_mask is None:
+        if pooling_type == "mean":
+            return hidden_states.mean(dim=1)
+        elif pooling_type == "max":
+            return hidden_states.max(dim=1)[0]
+        else:  # last
+            return hidden_states[:, -1]
+    
+    # Convert attention mask to float and unsqueeze to match hidden states
+    mask = attention_mask.float().unsqueeze(-1)
+    
+    if pooling_type == "mean":
+        # Sum up vectors and divide by the total number of non-masked tokens
+        sum_masked = (hidden_states * mask).sum(dim=1)
+        return sum_masked / (mask.sum(dim=1).clamp(min=1e-9))
+    
+    elif pooling_type == "max":
+        # Set masked positions to large negative value before max
+        masked_hidden = hidden_states.masked_fill(~attention_mask.bool().unsqueeze(-1), -1e9)
+        return masked_hidden.max(dim=1)[0]
+    
+    else:  # last
+        # Find the last non-masked position for each sequence
+        last_positions = attention_mask.sum(dim=1) - 1
+        batch_size = hidden_states.shape[0]
+        return hidden_states[torch.arange(batch_size), last_positions]
+
+
 # classes
 
 
-def FeedForward(dim, mult=4):
-    dim_inner = int(dim * mult)
-    return nn.Sequential(
-        nn.Linear(dim, dim_inner), nn.GELU(), nn.Linear(dim_inner, dim)
-    )
+class FeedForward(Module):
+    def __init__(self, dim, mult=4):
+        super().__init__()
+        dim_inner = int(dim * mult)
+        self.net = nn.Sequential(
+            nn.Linear(dim, dim_inner),
+            nn.GELU(),
+            nn.Linear(dim_inner, dim)
+        )
+    
+    def forward(self, x, mask=None):
+        out = self.net(x)
+        if mask is not None:
+            out = out * mask.unsqueeze(-1)
+        return out
 
 
 # conv
@@ -36,12 +75,14 @@ class CausalDepthWiseConv1d(Module):
             nn.Conv1d(dim, dim, kernel_size=1),
         )
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         x = x.transpose(1, 2)  # b n d -> b d n
         x = F.pad(x, (self.kernel_size - 1, 0), value=0.0)
         x = self.net(x)
-        return x.transpose(1, 2)  # b d n -> b n d
-
+        x = x.transpose(1, 2)  # b d n -> b n d
+        if mask is not None:
+            x = x * mask.unsqueeze(-1)
+        return x
 
 # main class
 
@@ -101,27 +142,39 @@ class minGRUC(Module):
     def forward(
         self,
         texts,
+        attention_mask=None,
         labels=None,
         return_loss=False,
     ):
         x = self.token_emb(texts)
 
+        if attention_mask is not None:
+            x = x * attention_mask.unsqueeze(-1)
+
         for conv, norm, mingru, ff_norm, ff in self.layers:
             if exists(conv):
                 x = conv(x) + x
 
-            min_gru_out, _ = mingru(norm(x), return_next_prev_hidden=True)
+            normed = norm(x)
+            if attention_mask is not None:
+                normed = normed * attention_mask.unsqueeze(-1)
+            
+            min_gru_out, _ = mingru(
+                    normed,
+                    mask=attention_mask,
+                    return_next_prev_hidden=True
+            )
             x = min_gru_out + x
-            x = ff(ff_norm(x)) + x
+            normed = ff_norm(x)
+            if attention_mask is not None:
+                normed = normed * attention_mask.unsqueeze(-1)
+            x = ff(normed, attention_mask) + x
 
         x = self.norm(x)
+        if attention_mask is not None:
+            x = x * attention_mask.unsqueeze(-1)
 
-        if self.pooling == "mean":
-            x = x.mean(dim=1)  # Mean pooling
-        elif self.pooling == "max":
-            x = x.max(dim=1)[0]  # Max pooling
-        else:  # Default to using last hidden state
-            x = x[:, -1]
+        x = masked_pooling(x, attention_mask, self.pooling)
 
         # Get logits from classification head
         logits = self.classifier(x)
